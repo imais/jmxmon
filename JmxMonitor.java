@@ -22,6 +22,7 @@ public class JmxMonitor {
     private int pid_;
     private String[] beans_;
     private String[] csvAttributes_;
+    private long startTime_;
 
     public JmxMonitor(String[] args) {
         port_ = LISTEN_PORT;
@@ -41,6 +42,8 @@ public class JmxMonitor {
         }
 
         client_ = new JmxClient(pid_);
+        startTime_ = System.currentTimeMillis();
+        System.out.println("JmxMonitor started at time " + startTime_ + " listening port " + port_);
     }
 
     private int getPid(String className) {
@@ -64,7 +67,7 @@ public class JmxMonitor {
             client_.open();
 
             while (true) {
-                String str = System.currentTimeMillis() + ", ";
+                String str = (System.currentTimeMillis() - startTime_) + ", ";
 
                 for (int i = 0; i < beans_.length; i++) {
                     Map<String, Object> vals = client_.getAttributeValues(beans_[i], csvAttributes_[i]);

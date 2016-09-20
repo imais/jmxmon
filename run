@@ -1,1 +1,1 @@
-java JmxMonitor kafka.Kafka kafka.server:name=BytesInPerSec,type=BrokerTopicMetrics#OneMinuteRate kafka.server:name=BytesOutPerSec,type=BrokerTopicMetrics#OneMinuteRate
+java JmxMonitor kafka.Kafka kafka.server:type=BrokerTopicMetrics,name=MessagesInPerSec#OneMinuteRate kafka.server:name=BytesInPerSec,type=BrokerTopicMetrics#OneMinuteRate kafka.server:name=BytesOutPerSec,type=BrokerTopicMetrics#OneMinuteRate
