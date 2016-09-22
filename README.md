@@ -1,2 +1,2 @@
-# jmxmon
-Data monitoring server through JMX
+# kafkamon
+Kafka metrics monitoring server through JMX
