@@ -98,7 +98,7 @@ public class JmxClient {
             MBeanAttributeInfo attrInfo = entry.getValue();
             if (attrInfo.isReadable()) {
                 Object result = conn.getAttribute(beanName, attrName);
-                attrValues.put(attrName, result);
+                attrValues.put(bean_ + "#" + attrName, result);
             }
         }
 
