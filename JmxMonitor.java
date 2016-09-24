@@ -7,11 +7,13 @@ import java.net.SocketTimeoutException;
 import java.util.Map;
 
 import javax.management.JMException;
-
 import sun.tools.jconsole.LocalVirtualMachine;
+import org.apache.log4j.Logger;
 
 
 public class JmxMonitor {
+    static Logger log = Logger.getLogger(JmxMonitor.class.getName());
+
     static private int LISTEN_PORT = 8888;
     static private int ACCEPT_TIMEOUT_MS = 3000; // [ms]
 
@@ -30,7 +32,7 @@ public class JmxMonitor {
             serverSock_ = new ServerSocket(port_);
             serverSock_.setSoTimeout(ACCEPT_TIMEOUT_MS);
         } catch (Exception ex) {
-            System.err.println(ex);
+            log.error(ex);
         }
 
         pid_ = getPid(args[0] /* class name */);
@@ -43,7 +45,7 @@ public class JmxMonitor {
 
         client_ = new JmxClient(pid_);
         startTime_ = System.currentTimeMillis();
-        System.out.println("JmxMonitor started at time " + startTime_ + " listening port " + port_);
+        log.info("Started at time " + startTime_ + " with listening port " + port_);
     }
 
     private int getPid(String className) {
@@ -54,7 +56,7 @@ public class JmxMonitor {
             LocalVirtualMachine vm = entry.getValue();
             if (vm.displayName().startsWith(className)) {
                 pid = vm.vmid();
-                System.out.println("Found vm \"" + vm.displayName() + "\" with pid " + pid);
+                log.info("Found vm \"" + vm.displayName() + "\" with pid " + pid);
                 break;
             }
         }
@@ -77,7 +79,7 @@ public class JmxMonitor {
                 }
 
                 str = str.substring(0, str.lastIndexOf(','));
-                System.out.println(str);
+                log.info(str);
 
                 try {
                     Socket sock = serverSock_.accept();
@@ -95,9 +97,9 @@ public class JmxMonitor {
 
             client_.close();
         } catch (IOException ex) {
-            System.err.println(ex);
+            log.error(ex);
         } catch (JMException ex) {
-            System.err.println(ex);
+            log.error(ex);
         }
     }
 

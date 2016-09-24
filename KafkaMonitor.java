@@ -12,13 +12,15 @@ import java.util.Map;
 import java.util.TreeMap;
 
 import javax.management.JMException;
-
 import sun.tools.jconsole.LocalVirtualMachine;
+import org.apache.log4j.Logger;
 
 
 public class KafkaMonitor {
+    static Logger log = Logger.getLogger(KafkaMonitor.class.getName());
+
     static private final int LISTEN_PORT = 8888;
-    static private final int ACCEPT_TIMEOUT_MS = 3000; // [ms]
+    static private final int ACCEPT_TIMEOUT_MS = 6000; // [ms]
     static private final String KAKFA_BROKER_CLASSNAME = "kafka.Kafka";
     static private final String[] MONITORING_METRICS = {
         // bean#attributes(csv)
@@ -30,7 +32,7 @@ public class KafkaMonitor {
     static private final int K = 8;
     static private final int N = 10;
     static private final int SCALING_THRESHOLD_PERCENTAGE = 3;
-    static private final int COOLDOWN_PERIOD_MS = 60000; // [ms]
+    static private final int COOLDOWN_PERIOD_MS = 30000; // [ms]
 
     private int port_;
     private ServerSocket serverSock_;
@@ -41,7 +43,8 @@ public class KafkaMonitor {
     private String[] csvAttributes_;
     private long startTime_;
 
-    private String[] kakfaProducerIpAddrs_; // ip1:port1,ip2:port2,...
+    private String[] producerIpAddrs_; // ip1:port1,ip2:port2,...
+    private Socket[] producerSocks_;
     private int currentProducer_;
     private LinkedList<Boolean> lastNChecks_;
     private long lastScalingTime_;
@@ -54,28 +57,42 @@ public class KafkaMonitor {
             serverSock_ = new ServerSocket(port_);
             serverSock_.setSoTimeout(ACCEPT_TIMEOUT_MS);
         } catch (Exception ex) {
-            System.err.println(ex);
+            log.error(ex);
         }
 
         pid_ = getPid(KAKFA_BROKER_CLASSNAME);
         beans_ = new String[MONITORING_METRICS.length];
         csvAttributes_ = new String[MONITORING_METRICS.length];
         for (int i = 0; i < MONITORING_METRICS.length; i++) {
-            beans_[i] = MONITORING_METRICS[i].substring(0, args[i].indexOf('#'));
-            csvAttributes_[i] = MONITORING_METRICS[i].substring(args[i].indexOf('#') + 1);
+            beans_[i] = MONITORING_METRICS[i].substring(0, MONITORING_METRICS[i].indexOf('#'));
+            csvAttributes_[i] = MONITORING_METRICS[i].
+                substring(MONITORING_METRICS[i].indexOf('#') + 1);
         }
 
         client_ = new JmxClient(pid_);
         startTime_ = System.currentTimeMillis();
 
         // Producer scaling related
-        kakfaProducerIpAddrs_ = args[0].split(",");
+        producerIpAddrs_ = args[0].split(",");
         currentProducer_ = 0;
         lastNChecks_ = new LinkedList<Boolean>();
         lastScalingTime_ = 0;
         producerThroughput_ = Integer.parseInt(args[1]);
 
-        System.out.println("KafkaMonitor started at time " + startTime_ + " listening port " + port_);
+        producerSocks_ = new Socket[producerIpAddrs_.length];
+        for (int i = 0; i < producerIpAddrs_.length; i++) {
+            int semiColonIndex = producerIpAddrs_[i].indexOf(':');
+            String ipAddr = producerIpAddrs_[i].substring(0, semiColonIndex);
+            int port = Integer.parseInt(producerIpAddrs_[i].substring(semiColonIndex + 1));
+            try {
+                producerSocks_[i] = new Socket(ipAddr, port);
+            } catch (IOException ex) {
+                log.error(ex);
+            }
+            
+        }
+
+        log.info("KafkaMonitor started at time " + startTime_ + " listening port " + port_);
     }
 
     private int getPid(String className) {
@@ -86,7 +103,7 @@ public class KafkaMonitor {
             LocalVirtualMachine vm = entry.getValue();
             if (vm.displayName().startsWith(className)) {
                 pid = vm.vmid();
-                System.out.println("Found vm \"" + vm.displayName() + "\" with pid " + pid);
+                log.info("Found vm \"" + vm.displayName() + "\" with pid " + pid);
                 break;
             }
         }
@@ -95,19 +112,19 @@ public class KafkaMonitor {
     }
 
     private boolean decideProducerScaling(Map<String, Object> vals) {
-        if (lastScalingTime_ == 0)
-            return true;        // first time 
-        if (System.currentTimeMillis() < lastScalingTime_ + COOLDOWN_PERIOD_MS)
-            return false;       // still in cooldown period
+        if (lastScalingTime_ == 0) {
+            log.debug("First time, always create a new producer");
+            return true;
+        }
 
         // K out of N check
         double bytesInPerSec = 0.0, bytesOutPerSec = 0.0;
         for (Map.Entry<String, Object> entry : vals.entrySet()) {
             String beanAttr = entry.getKey();
             if (beanAttr.contains("BytesInPerSec"))
-                bytesInPerSec = Double.parseDouble((String)entry.getValue());
+                bytesInPerSec = (Double)entry.getValue();
             else if (beanAttr.contains("BytesOutPerSec"))
-                bytesOutPerSec = Double.parseDouble((String)entry.getValue());
+                bytesOutPerSec = (Double)entry.getValue();
         }
 
         // check if the consumer is processing at least (100-alpha)% of the producer throughput
@@ -115,36 +132,48 @@ public class KafkaMonitor {
                                        bytesInPerSec * (100 - SCALING_THRESHOLD_PERCENTAGE) / 100);
         lastNChecks_.addLast(new Boolean(isConsumerKeepingUp));
 
-        if (N < lastNChecks_.size()) {
+        long now = System.currentTimeMillis();
+        long cooldownPeriod = lastScalingTime_ + COOLDOWN_PERIOD_MS;
+        if (now < cooldownPeriod) {
+            log.debug("Still in cooldown period (now: " + 
+                      now + ", cooldown: " + cooldownPeriod + ")");
+            return false;       
+        }
+
+        if (N <= lastNChecks_.size()) {
             // we have done enough checks
-            lastNChecks_.removeFirst();
             int k = 0;
-            for (Boolean check : lastNChecks_)
+            int index = lastNChecks_.size() - 1;
+            for (int i = 0; i < N; i++) {
+                boolean check = lastNChecks_.get(index);
                 if (check) k++;
+                index--;
+            }
+            log.debug("K out N check: K " + k + ", N " + N);
+            lastNChecks_.removeFirst(); // remove the oldest one for the next check
             return (K <= k);
         }
 
-        // not enough checks yet
+        log.debug("Not enough checks yet (check: " + lastNChecks_.size() + " times)");
         return false;               
     }
 
     private void requestNewProducer() {
-        int semiColonIndex = kakfaProducerIpAddrs_[currentProducer_].indexOf(':');
-        String ipAddr = kakfaProducerIpAddrs_[currentProducer_].substring(0, semiColonIndex);
-        int port = Integer.parseInt(
-            kakfaProducerIpAddrs_[currentProducer_].substring(semiColonIndex + 1));
-
         try {
             // request creating a new producer by sending producer throughput
-            Socket sock = new Socket(ipAddr, port);
+            Socket sock = producerSocks_[currentProducer_];
             DataOutputStream out = new DataOutputStream(sock.getOutputStream());
-            out.writeBytes(Integer.toString(producerThroughput_)); 
+            out.writeBytes(Integer.toString(producerThroughput_) + "\n"); 
+            log.debug("Sent request to producer " + currentProducer_ +
+                      " with throughput " + producerThroughput_);
         } catch (IOException ex) {
-            System.err.println(ex);
+            log.error(ex);
         }
         
         lastScalingTime_ = System.currentTimeMillis();
-        currentProducer_ = (currentProducer_ + 1) % kakfaProducerIpAddrs_.length;
+        currentProducer_ = (currentProducer_ + 1) % producerIpAddrs_.length;
+        log.debug("Updated lastScalingTime: " + lastScalingTime_ + 
+                           ", currentProducer: " + currentProducer_);
     }
 
     public void doMonitor() {
@@ -164,7 +193,7 @@ public class KafkaMonitor {
                 }
 
                 str = str.substring(0, str.lastIndexOf(','));
-                System.out.println(str);
+                log.info(str);
 
                 // Figure out if we request to create a new producer
                 if (decideProducerScaling(allVals)) {
@@ -178,6 +207,8 @@ public class KafkaMonitor {
                     if (data.equals("bye") || data.equals("quit")) {
                         sock.close();
                         serverSock_.close();
+                        for (int i = 0; i < producerSocks_.length; i++)
+                            producerSocks_[i].close();
                         break;
                     }
                 } catch (SocketTimeoutException ex) {
@@ -187,9 +218,9 @@ public class KafkaMonitor {
 
             client_.close();
         } catch (IOException ex) {
-            System.err.println(ex);
+            log.error(ex);
         } catch (JMException ex) {
-            System.err.println(ex);
+            log.error(ex);
         }
     }
 
@@ -198,6 +229,8 @@ public class KafkaMonitor {
             System.err.println("Usage: java KafkaMonitor [Kafka Producer IP addrs(csv)] [producer throughput");
             System.exit(1);
         }
+
+        // TODO: add handler for Ctrl-C signal
 
         KafkaMonitor kakfaMon  = new KafkaMonitor(args);
         kakfaMon.doMonitor();

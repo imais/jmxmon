@@ -14,8 +14,11 @@ import javax.management.remote.JMXConnectorFactory;
 import javax.management.remote.JMXServiceURL;
 
 import sun.tools.jconsole.LocalVirtualMachine;
+import org.apache.log4j.Logger;
 
 public class JmxClient {
+    static Logger log = Logger.getLogger(JmxClient.class.getName());
+
     private int pid_;
     private String bean_;
     private List<String> attributes_;
@@ -44,7 +47,7 @@ public class JmxClient {
         url_ = vm.connectorAddress();
         // System.out.println("Connecting to MBean server: " + url_);
         connector_ = JMXConnectorFactory.connect(new JMXServiceURL(url_), null /* env */);
-        System.out.println("Opened connection to pid " + pid_);
+        log.info("Opened connection to pid " + pid_);
     }
 
     public boolean isOpened() {
@@ -54,7 +57,7 @@ public class JmxClient {
     public void close() throws IOException {
         if (connector_ != null) {
             connector_.close();
-            System.out.println("Bye");
+            log.info("Bye");
         }
     }
 
@@ -122,9 +125,9 @@ public class JmxClient {
             }
             jmx.close();
         } catch (IOException ex) {
-            System.err.println(ex);
+            log.error(ex);
         } catch (JMException ex) {
-            System.err.println(ex);
+            log.error(ex);
         }
     }
 }
