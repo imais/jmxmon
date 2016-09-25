@@ -128,8 +128,7 @@ public class KafkaMonitor {
         }
 
         // check if the consumer is processing at least (100-alpha)% of the producer throughput
-        boolean isConsumerKeepingUp = (bytesOutPerSec <
-                                       bytesInPerSec * (100 - SCALING_THRESHOLD_PERCENTAGE) / 100);
+        boolean isConsumerKeepingUp = ((bytesInPerSec * (100 - SCALING_THRESHOLD_PERCENTAGE) / 100) < bytesOutPerSec);
         lastNChecks_.addLast(new Boolean(isConsumerKeepingUp));
 
         long now = System.currentTimeMillis();
