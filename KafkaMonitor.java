@@ -34,7 +34,7 @@ public class KafkaMonitor {
     static private final int SCALING_THRESHOLD_PERCENTAGE = 3;
     static private final int COOLDOWN_PERIOD_MS = 60000; // [ms]
     // Termination criteria
-    static private final int TERMINATION_THRESHOLD_PERCENTAGE = 3;
+    static private final int TERMINATION_THRESHOLD_PERCENTAGE = 1;
 
     private int port_;
     private ServerSocket serverSock_;
