@@ -33,6 +33,8 @@ public class KafkaMonitor {
     static private final int N = 10;
     static private final int SCALING_THRESHOLD_PERCENTAGE = 3;
     static private final int COOLDOWN_PERIOD_MS = 60000; // [ms]
+    // Termination criteria
+    static private final int TERMINATION_THRESHOLD_PERCENTAGE = 3;
 
     private int port_;
     private ServerSocket serverSock_;
@@ -48,8 +50,9 @@ public class KafkaMonitor {
     private int currentProducer_;
     private LinkedList<Boolean> lastNChecks_;
     private long lastScalingTime_;
-    private int producerThroughput_;
-
+    private int producerThroughput_;            // [tuples/sec]
+    private int totalProducerThroughput_;       // [tuples/sec]
+    private double maxConsumerThroughput_;      // [bytes/sec]
 
     public KafkaMonitor(String[] args) {
         port_ = LISTEN_PORT;
@@ -78,6 +81,8 @@ public class KafkaMonitor {
         lastNChecks_ = new LinkedList<Boolean>();
         lastScalingTime_ = 0;
         producerThroughput_ = Integer.parseInt(args[1]);
+        totalProducerThroughput_ = 0;
+        maxConsumerThroughput_ = 0.0;
 
         producerSocks_ = new Socket[producerIpAddrs_.length];
         for (int i = 0; i < producerIpAddrs_.length; i++) {
@@ -111,7 +116,28 @@ public class KafkaMonitor {
         return pid;
     }
 
-    private boolean decideProducerScaling(Map<String, Object> vals) {
+    private boolean checkIfTerminate(Map<String, Object> vals) {
+        double MessagesInPerSec = 0.0;
+        for (Map.Entry<String, Object> entry : vals.entrySet()) {
+            String beanAttr = entry.getKey();
+            if (beanAttr.contains("MessagesInPerSec")) {
+                MessagesInPerSec = (Double)entry.getValue();
+                break;
+            }
+        }
+
+        if ((totalProducerThroughput_ * (100 - TERMINATION_THRESHOLD_PERCENTAGE) / 100) < 
+            MessagesInPerSec) {
+            log.info("MessagesInPerSec:" +  MessagesInPerSec + 
+                     " reached within " + TERMINATION_THRESHOLD_PERCENTAGE + 
+                     "% of totalProducerThroughput: " + totalProducerThroughput_);
+            return true;
+        }
+        else
+            return false;
+    }
+
+    private boolean checkIfScaleProducers(Map<String, Object> vals) {
         if (lastScalingTime_ == 0) {
             log.debug("First time, always create a new producer");
             return true;
@@ -123,8 +149,11 @@ public class KafkaMonitor {
             String beanAttr = entry.getKey();
             if (beanAttr.contains("BytesInPerSec"))
                 bytesInPerSec = (Double)entry.getValue();
-            else if (beanAttr.contains("BytesOutPerSec"))
+            else if (beanAttr.contains("BytesOutPerSec")) {
                 bytesOutPerSec = (Double)entry.getValue();
+                if (maxConsumerThroughput_ < bytesOutPerSec) 
+                    maxConsumerThroughput_ = bytesOutPerSec;
+            }
         }
 
         // check if the consumer is processing at least (100-alpha)% of the producer throughput
@@ -171,8 +200,10 @@ public class KafkaMonitor {
         
         lastScalingTime_ = System.currentTimeMillis();
         currentProducer_ = (currentProducer_ + 1) % producerIpAddrs_.length;
+        totalProducerThroughput_ += producerThroughput_;
         log.debug("Updated lastScalingTime: " + lastScalingTime_ + 
-                           ", currentProducer: " + currentProducer_);
+                  ", currentProducer: " + currentProducer_ + 
+                  ", totalProducerThroughput: " + totalProducerThroughput_);
     }
 
     public void doMonitor() {
@@ -193,9 +224,10 @@ public class KafkaMonitor {
 
                 str = str.substring(0, str.lastIndexOf(','));
                 log.info(str);
-
-                // Figure out if we request to create a new producer
-                if (decideProducerScaling(allVals)) {
+                
+                if (checkIfTerminate(allVals))
+                    break;
+                else if (checkIfScaleProducers(allVals)) {
                     requestNewProducer();
                 }
 
@@ -216,6 +248,8 @@ public class KafkaMonitor {
             }
 
             client_.close();
+            log.info("maxConsumerThroughput: " + maxConsumerThroughput_);
+            
         } catch (IOException ex) {
             log.error(ex);
         } catch (JMException ex) {
