@@ -20,7 +20,7 @@ public class KafkaMonitor {
     static Logger log = Logger.getLogger(KafkaMonitor.class.getName());
 
     static private final int LISTEN_PORT = 8888;
-    static private final int ACCEPT_TIMEOUT_MS = 6000; // [ms]
+    static private final int ACCEPT_TIMEOUT_MS = 3000; // [ms]
     static private final String KAKFA_BROKER_CLASSNAME = "kafka.Kafka";
     static private final String[] MONITORING_METRICS = {
         // bean#attributes(csv)
@@ -32,7 +32,7 @@ public class KafkaMonitor {
     static private final int K = 8;
     static private final int N = 10;
     static private final int SCALING_THRESHOLD_PERCENTAGE = 3;
-    static private final int COOLDOWN_PERIOD_MS = 30000; // [ms]
+    static private final int COOLDOWN_PERIOD_MS = 60000; // [ms]
 
     private int port_;
     private ServerSocket serverSock_;
