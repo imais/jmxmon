@@ -33,8 +33,13 @@ public class KafkaMonitor {
     static private final int N = 10;
     static private final int SCALING_THRESHOLD_PERCENTAGE = 3;
     static private final int COOLDOWN_PERIOD_MS = 60000; // [ms]
-    // Termination criteria
-    static private final int TERMINATION_THRESHOLD_PERCENTAGE = 1;
+    // Termination criteria: program terminates if both of the following conditions meet
+    // 1. messagesInPerSec_ is within a% of totalMessagesInPerSec_
+    // 2. "delta between BytesOutPerSec and lastBytesOutPerSec is less than b%" 
+    //    is observed M times in a row
+    static private final int TERMINATION_MESSAGESIN_THRESHOLD_PERCENTAGE = 1;   // a
+    static private final int TERMINATION_BYTESOUT_THRESHOLD_PERCENTAGE = 5;     // b
+    static private final int M = 10;
 
     private int port_;
     private ServerSocket serverSock_;
@@ -50,9 +55,12 @@ public class KafkaMonitor {
     private int currentProducer_;
     private LinkedList<Boolean> lastNChecks_;
     private long lastScalingTime_;
-    private int producerThroughput_;            // [tuples/sec]
-    private int totalProducerThroughput_;       // [tuples/sec]
-    private double maxConsumerThroughput_;      // [bytes/sec]
+    private int messagesInPerSec_;     
+    private boolean messagesInPerSecWithinThreshold_;
+    private int totalMessagesInPerSec_;
+    private double maxBytesOutPerSec_;
+    private double lastBytesOutPerSec_;
+    private int numBytesOutDeltaWithinThreshold_;
 
     public KafkaMonitor(String[] args) {
         port_ = LISTEN_PORT;
@@ -80,9 +88,12 @@ public class KafkaMonitor {
         currentProducer_ = 0;
         lastNChecks_ = new LinkedList<Boolean>();
         lastScalingTime_ = 0;
-        producerThroughput_ = Integer.parseInt(args[1]);
-        totalProducerThroughput_ = 0;
-        maxConsumerThroughput_ = 0.0;
+        messagesInPerSec_ = Integer.parseInt(args[1]);
+        messagesInPerSecWithinThreshold_ = false;
+        totalMessagesInPerSec_ = 0;
+        maxBytesOutPerSec_ = 0.0;
+        lastBytesOutPerSec_ = 0.0;
+        numBytesOutDeltaWithinThreshold_ = 0;
 
         producerSocks_ = new Socket[producerIpAddrs_.length];
         for (int i = 0; i < producerIpAddrs_.length; i++) {
@@ -117,24 +128,57 @@ public class KafkaMonitor {
     }
 
     private boolean checkIfTerminate(Map<String, Object> vals) {
-        double MessagesInPerSec = 0.0;
+        boolean terminate = false;
+
+        double bytesOutPerSec = 0.0;
         for (Map.Entry<String, Object> entry : vals.entrySet()) {
             String beanAttr = entry.getKey();
-            if (beanAttr.contains("MessagesInPerSec")) {
-                MessagesInPerSec = (Double)entry.getValue();
+            if (beanAttr.contains("BytesOutPerSec")) {
+                bytesOutPerSec = (Double)entry.getValue();
                 break;
             }
         }
-
-        if ((totalProducerThroughput_ * (100 - TERMINATION_THRESHOLD_PERCENTAGE) / 100) < 
-            MessagesInPerSec) {
-            log.info("MessagesInPerSec:" +  MessagesInPerSec + 
-                     " reached within " + TERMINATION_THRESHOLD_PERCENTAGE + 
-                     "% of totalProducerThroughput: " + totalProducerThroughput_);
-            return true;
+        
+        if (messagesInPerSecWithinThreshold_) {
+            if (100 * Math.abs((lastBytesOutPerSec_ - bytesOutPerSec) / lastBytesOutPerSec_) <
+                TERMINATION_BYTESOUT_THRESHOLD_PERCENTAGE) {
+                numBytesOutDeltaWithinThreshold_++;
+                log.debug("bytesOutPerSec:" +  bytesOutPerSec +
+                          " is within " + TERMINATION_BYTESOUT_THRESHOLD_PERCENTAGE +
+                          "% of lastBytesOutPerSec: " + lastBytesOutPerSec_ + 
+                          ", M: " + numBytesOutDeltaWithinThreshold_);
+            }
+            else {
+                numBytesOutDeltaWithinThreshold_ = 0;
+                log.debug("bytesOutPerSec:" +  bytesOutPerSec +
+                          " is out of " + TERMINATION_BYTESOUT_THRESHOLD_PERCENTAGE +
+                          "% of lastBytesOutPerSec: " + lastBytesOutPerSec_);
+            }
+            if (M <= numBytesOutDeltaWithinThreshold_) 
+                terminate = true;
         }
-        else
-            return false;
+        else {
+            double messagesInPerSec = 0.0;
+            for (Map.Entry<String, Object> entry : vals.entrySet()) {
+                String beanAttr = entry.getKey();
+                if (beanAttr.contains("MessagesInPerSec")) {
+                    messagesInPerSec = (Double)entry.getValue();
+                    break;
+                }
+            }
+
+            if ((totalMessagesInPerSec_ * (100 - TERMINATION_MESSAGESIN_THRESHOLD_PERCENTAGE) / 100) < 
+                messagesInPerSec) {
+                log.info("messagesInPerSec:" +  messagesInPerSec + 
+                         " reached within " + TERMINATION_MESSAGESIN_THRESHOLD_PERCENTAGE +
+                         "% of totalMessagesInPerSec: " + totalMessagesInPerSec_);
+                messagesInPerSecWithinThreshold_ = true;
+            }
+        }
+
+        lastBytesOutPerSec_ = bytesOutPerSec;
+
+        return terminate;
     }
 
     private boolean checkIfScaleProducers(Map<String, Object> vals) {
@@ -151,8 +195,8 @@ public class KafkaMonitor {
                 bytesInPerSec = (Double)entry.getValue();
             else if (beanAttr.contains("BytesOutPerSec")) {
                 bytesOutPerSec = (Double)entry.getValue();
-                if (maxConsumerThroughput_ < bytesOutPerSec) 
-                    maxConsumerThroughput_ = bytesOutPerSec;
+                if (maxBytesOutPerSec_ < bytesOutPerSec) 
+                    maxBytesOutPerSec_ = bytesOutPerSec;
             }
         }
 
@@ -163,8 +207,7 @@ public class KafkaMonitor {
         long now = System.currentTimeMillis();
         long cooldownPeriod = lastScalingTime_ + COOLDOWN_PERIOD_MS;
         if (now < cooldownPeriod) {
-            log.debug("Still in cooldown period (now: " + 
-                      now + ", cooldown: " + cooldownPeriod + ")");
+            log.debug("In cooldown period (now: " + now + ", cooldown: " + cooldownPeriod + ")");
             return false;       
         }
 
@@ -191,19 +234,19 @@ public class KafkaMonitor {
             // request creating a new producer by sending producer throughput
             Socket sock = producerSocks_[currentProducer_];
             DataOutputStream out = new DataOutputStream(sock.getOutputStream());
-            out.writeBytes(Integer.toString(producerThroughput_) + "\n"); 
+            out.writeBytes(Integer.toString(messagesInPerSec_) + "\n"); 
             log.debug("Sent request to producer " + currentProducer_ +
-                      " with throughput " + producerThroughput_);
+                      " with throughput " + messagesInPerSec_);
         } catch (IOException ex) {
             log.error(ex);
         }
         
         lastScalingTime_ = System.currentTimeMillis();
         currentProducer_ = (currentProducer_ + 1) % producerIpAddrs_.length;
-        totalProducerThroughput_ += producerThroughput_;
+        totalMessagesInPerSec_ += messagesInPerSec_;
         log.debug("Updated lastScalingTime: " + lastScalingTime_ + 
                   ", currentProducer: " + currentProducer_ + 
-                  ", totalProducerThroughput: " + totalProducerThroughput_);
+                  ", totalProducerThroughput: " + totalMessagesInPerSec_);
     }
 
     public void doMonitor() {
@@ -224,7 +267,7 @@ public class KafkaMonitor {
 
                 str = str.substring(0, str.lastIndexOf(','));
                 log.info(str);
-                
+
                 if (checkIfTerminate(allVals))
                     break;
                 else if (checkIfScaleProducers(allVals)) {
@@ -248,7 +291,7 @@ public class KafkaMonitor {
             }
 
             client_.close();
-            log.info("maxConsumerThroughput: " + maxConsumerThroughput_);
+            log.info("maxConsumerThroughput: " + maxBytesOutPerSec_);
             
         } catch (IOException ex) {
             log.error(ex);
