@@ -169,9 +169,9 @@ public class KafkaMonitor {
 
             if ((totalMessagesInPerSec_ * (100 - TERMINATION_MESSAGESIN_THRESHOLD_PERCENTAGE) / 100) < 
                 messagesInPerSec) {
-                log.info("messagesInPerSec:" +  messagesInPerSec + 
-                         " reached within " + TERMINATION_MESSAGESIN_THRESHOLD_PERCENTAGE +
-                         "% of totalMessagesInPerSec: " + totalMessagesInPerSec_);
+                log.debug("messagesInPerSec:" +  messagesInPerSec + 
+                          " reached within " + TERMINATION_MESSAGESIN_THRESHOLD_PERCENTAGE +
+                          "% of totalMessagesInPerSec: " + totalMessagesInPerSec_);
                 messagesInPerSecWithinThreshold_ = true;
             }
         }
@@ -236,7 +236,7 @@ public class KafkaMonitor {
             DataOutputStream out = new DataOutputStream(sock.getOutputStream());
             out.writeBytes(Integer.toString(messagesInPerSec_) + "\n"); 
             log.debug("Sent request to producer " + currentProducer_ +
-                      " with throughput " + messagesInPerSec_);
+                      " with messagesInPerSec " + messagesInPerSec_);
         } catch (IOException ex) {
             log.error(ex);
         }
@@ -246,7 +246,7 @@ public class KafkaMonitor {
         totalMessagesInPerSec_ += messagesInPerSec_;
         log.debug("Updated lastScalingTime: " + lastScalingTime_ + 
                   ", currentProducer: " + currentProducer_ + 
-                  ", totalProducerThroughput: " + totalMessagesInPerSec_);
+                  ", totalMessagesInPerSec: " + totalMessagesInPerSec_);
     }
 
     public void doMonitor() {
@@ -291,7 +291,7 @@ public class KafkaMonitor {
             }
 
             client_.close();
-            log.info("maxConsumerThroughput: " + maxBytesOutPerSec_);
+            log.info("maxBytesOutPerSec: " + maxBytesOutPerSec_);
             
         } catch (IOException ex) {
             log.error(ex);
@@ -302,7 +302,7 @@ public class KafkaMonitor {
 
     public static void main(String[] args) {
         if (args.length < 2) {
-            System.err.println("Usage: java KafkaMonitor [Kafka Producer IP addrs(csv)] [producer throughput");
+            System.err.println("Usage: java KafkaMonitor [Kafka Producer IP addrs(csv)] [producer messagesInPerSec]");
             System.exit(1);
         }
 
