@@ -84,16 +84,17 @@ public class KafkaMonitor {
         client_ = new JmxClient(pid_);
         startTime_ = System.currentTimeMillis();
 
-        messagesInPerSec_ = Integer.parseInt(args[1]);
-        messagesInPerSecWithinThreshold_ = false;
-        totalMessagesInPerSec_ = 0;
-        maxBytesOutPerSec_ = 0.0;
-        lastBytesOutPerSec_ = 0.0;
-        numBytesOutDeltaWithinThreshold_ = 0;
-
         if (2 <= args.length) {
             // Producer scaling enabled
             producerScalingEnabled_ = true;
+
+            messagesInPerSec_ = Integer.parseInt(args[1]);
+            messagesInPerSecWithinThreshold_ = false;
+            totalMessagesInPerSec_ = 0;
+            maxBytesOutPerSec_ = 0.0;
+            lastBytesOutPerSec_ = 0.0;
+            numBytesOutDeltaWithinThreshold_ = 0;
+
             producerIpAddrs_ = args[0].split(",");
             currentProducer_ = 0;
             lastNChecks_ = new LinkedList<Boolean>();
