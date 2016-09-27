@@ -50,6 +50,7 @@ public class KafkaMonitor {
     private String[] csvAttributes_;
     private long startTime_;
 
+    private boolean producerScalingEnabled_;
     private String[] producerIpAddrs_; // ip1:port1,ip2:port2,...
     private Socket[] producerSocks_;
     private int currentProducer_;
@@ -83,11 +84,6 @@ public class KafkaMonitor {
         client_ = new JmxClient(pid_);
         startTime_ = System.currentTimeMillis();
 
-        // Producer scaling related
-        producerIpAddrs_ = args[0].split(",");
-        currentProducer_ = 0;
-        lastNChecks_ = new LinkedList<Boolean>();
-        lastScalingTime_ = 0;
         messagesInPerSec_ = Integer.parseInt(args[1]);
         messagesInPerSecWithinThreshold_ = false;
         totalMessagesInPerSec_ = 0;
@@ -95,20 +91,32 @@ public class KafkaMonitor {
         lastBytesOutPerSec_ = 0.0;
         numBytesOutDeltaWithinThreshold_ = 0;
 
-        producerSocks_ = new Socket[producerIpAddrs_.length];
-        for (int i = 0; i < producerIpAddrs_.length; i++) {
-            int semiColonIndex = producerIpAddrs_[i].indexOf(':');
-            String ipAddr = producerIpAddrs_[i].substring(0, semiColonIndex);
-            int port = Integer.parseInt(producerIpAddrs_[i].substring(semiColonIndex + 1));
-            try {
-                producerSocks_[i] = new Socket(ipAddr, port);
-            } catch (IOException ex) {
-                log.error(ex);
-            }
-            
-        }
+        if (2 <= args.length) {
+            // Producer scaling enabled
+            producerScalingEnabled_ = true;
+            producerIpAddrs_ = args[0].split(",");
+            currentProducer_ = 0;
+            lastNChecks_ = new LinkedList<Boolean>();
+            lastScalingTime_ = 0;
 
-        log.info("KafkaMonitor started at time " + startTime_ + " listening port " + port_);
+            producerSocks_ = new Socket[producerIpAddrs_.length];
+            for (int i = 0; i < producerIpAddrs_.length; i++) {
+                int semiColonIndex = producerIpAddrs_[i].indexOf(':');
+                String ipAddr = producerIpAddrs_[i].substring(0, semiColonIndex);
+                int port = Integer.parseInt(producerIpAddrs_[i].substring(semiColonIndex + 1));
+                try {
+                    producerSocks_[i] = new Socket(ipAddr, port);
+                } catch (IOException ex) {
+                    log.error(ex);
+                }
+            }
+        }
+        else 
+            producerScalingEnabled_ = false;
+
+        log.info("KafkaMonitor started at time " + startTime_ + 
+                 ", listening port: " + port_ +
+                 ", producer scaling: " + producerScalingEnabled_);
     }
 
     private int getPid(String className) {
@@ -268,10 +276,12 @@ public class KafkaMonitor {
                 str = str.substring(0, str.lastIndexOf(','));
                 log.info(str);
 
-                if (checkIfTerminate(allVals))
-                    break;
-                else if (checkIfScaleProducers(allVals)) {
-                    requestNewProducer();
+                if (producerScalingEnabled_) {
+                    if (checkIfTerminate(allVals))
+                        break;
+                    else if (checkIfScaleProducers(allVals)) {
+                        requestNewProducer();
+                    }
                 }
 
                 try {
@@ -301,7 +311,7 @@ public class KafkaMonitor {
     }
 
     public static void main(String[] args) {
-        if (args.length < 2) {
+        if (2 < args.length) {
             System.err.println("Usage: java KafkaMonitor [Kafka Producer IP addrs(csv)] [producer messagesInPerSec]");
             System.exit(1);
         }
