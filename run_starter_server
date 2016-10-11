@@ -1,1 +1,0 @@
-nc -vv -l 7777 | ./kafka_producer_starter.sh
