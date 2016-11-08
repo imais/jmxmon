@@ -33,13 +33,19 @@ public class KafkaMonitor {
     static private final int N = 10;
     static private final int SCALING_THRESHOLD_PERCENTAGE = 3;
     static private final int COOLDOWN_PERIOD_MS = 60000; // [ms]
-    // Termination criteria: program terminates if both of the following conditions meet
+    static private final int COOLDOWN_THRESHOLD_PERCENTAGE = 10;
+    // Termination criteria: program terminates if both conditions 1 and 2 meet
+    //  OR
+    // condition 3 holds
     // 1. messagesInPerSec_ is within a% of totalMessagesInPerSec_
     // 2. "delta between BytesOutPerSec and lastBytesOutPerSec is less than b%" 
     //    is observed M times in a row
-    static private final int TERMINATION_MESSAGESIN_THRESHOLD_PERCENTAGE = 1;   // a
+    // 3. messagesInPerSec_ drops more than c% from its peak value
+    static private final int TERMINATION_MESSAGESIN_THRESHOLD_PERCENTAGE = 3;   // a
     static private final int TERMINATION_BYTESOUT_THRESHOLD_PERCENTAGE = 5;     // b
+    static private final int TERMINATION_BYTESIN_DROP_THRESHOLD_PERCENTAGE = 10;// c
     static private final int M = 10;
+
 
     private int port_;
     private ServerSocket serverSock_;
@@ -57,6 +63,7 @@ public class KafkaMonitor {
     private LinkedList<Boolean> lastNChecks_;
     private long lastScalingTime_;
     private int messagesInPerSec_;     
+    private double maxMessagesInPerSec_;
     private boolean messagesInPerSecWithinThreshold_;
     private int totalMessagesInPerSec_;
     private double maxBytesOutPerSec_;
@@ -92,6 +99,7 @@ public class KafkaMonitor {
             messagesInPerSecWithinThreshold_ = false;
             totalMessagesInPerSec_ = 0;
             maxBytesOutPerSec_ = 0.0;
+            maxMessagesInPerSec_ = 0.0;
             lastBytesOutPerSec_ = 0.0;
             numBytesOutDeltaWithinThreshold_ = 0;
 
@@ -139,49 +147,57 @@ public class KafkaMonitor {
     private boolean checkIfTerminate(Map<String, Object> vals) {
         boolean terminate = false;
 
-        double bytesOutPerSec = 0.0;
+        double bytesOutPerSec = 0.0, messagesInPerSec = 0.0;
         for (Map.Entry<String, Object> entry : vals.entrySet()) {
             String beanAttr = entry.getKey();
-            if (beanAttr.contains("BytesOutPerSec")) {
+            if (beanAttr.contains("BytesOutPerSec"))
                 bytesOutPerSec = (Double)entry.getValue();
-                break;
+            else if (beanAttr.contains("MessagesInPerSec")) {
+                messagesInPerSec = (Double)entry.getValue();
+                if (maxMessagesInPerSec_ < messagesInPerSec)
+                    maxMessagesInPerSec_ = messagesInPerSec;
             }
         }
-        
-        if (messagesInPerSecWithinThreshold_) {
-            if (100 * Math.abs((lastBytesOutPerSec_ - bytesOutPerSec) / lastBytesOutPerSec_) <
-                TERMINATION_BYTESOUT_THRESHOLD_PERCENTAGE) {
-                numBytesOutDeltaWithinThreshold_++;
-                log.debug("bytesOutPerSec:" +  bytesOutPerSec +
-                          " is within " + TERMINATION_BYTESOUT_THRESHOLD_PERCENTAGE +
-                          "% of lastBytesOutPerSec: " + lastBytesOutPerSec_ + 
-                          ", M: " + numBytesOutDeltaWithinThreshold_);
+
+        if (messagesInPerSec < maxMessagesInPerSec_) {
+            double dropPercent = 
+                100 * (double)(maxMessagesInPerSec_ - messagesInPerSec) / maxMessagesInPerSec_;
+            if (TERMINATION_BYTESIN_DROP_THRESHOLD_PERCENTAGE <= dropPercent) {
+                log.debug("messageInPerSec:" +  messagesInPerSec + 
+                          " dropped more than " + TERMINATION_BYTESIN_DROP_THRESHOLD_PERCENTAGE + 
+                          "% of maxMessagesInPerSec: " + maxMessagesInPerSec_);
+                terminate = true;
+            }
+        }
+
+        if (!terminate) {
+            if (messagesInPerSecWithinThreshold_) {
+                if (100 * Math.abs((lastBytesOutPerSec_ - bytesOutPerSec) / lastBytesOutPerSec_) <
+                    TERMINATION_BYTESOUT_THRESHOLD_PERCENTAGE) {
+                    numBytesOutDeltaWithinThreshold_++;
+                    log.debug("bytesOutPerSec:" +  bytesOutPerSec +
+                              " is within " + TERMINATION_BYTESOUT_THRESHOLD_PERCENTAGE +
+                              "% of lastBytesOutPerSec: " + lastBytesOutPerSec_ + 
+                              ", M: " + numBytesOutDeltaWithinThreshold_);
+                }
+                else {
+                    numBytesOutDeltaWithinThreshold_ = 0;
+                    log.debug("bytesOutPerSec:" +  bytesOutPerSec +
+                              " is out of " + TERMINATION_BYTESOUT_THRESHOLD_PERCENTAGE +
+                              "% of lastBytesOutPerSec: " + lastBytesOutPerSec_);
+                }
+                if (M <= numBytesOutDeltaWithinThreshold_) 
+                    terminate = true;
             }
             else {
-                numBytesOutDeltaWithinThreshold_ = 0;
-                log.debug("bytesOutPerSec:" +  bytesOutPerSec +
-                          " is out of " + TERMINATION_BYTESOUT_THRESHOLD_PERCENTAGE +
-                          "% of lastBytesOutPerSec: " + lastBytesOutPerSec_);
-            }
-            if (M <= numBytesOutDeltaWithinThreshold_) 
-                terminate = true;
-        }
-        else {
-            double messagesInPerSec = 0.0;
-            for (Map.Entry<String, Object> entry : vals.entrySet()) {
-                String beanAttr = entry.getKey();
-                if (beanAttr.contains("MessagesInPerSec")) {
-                    messagesInPerSec = (Double)entry.getValue();
-                    break;
+                // check if messagesInPerSec is within a% of totalMessagesInPerSec_
+                if ((totalMessagesInPerSec_ * 
+                     (100 - TERMINATION_MESSAGESIN_THRESHOLD_PERCENTAGE) / 100) < messagesInPerSec) {
+                    log.debug("messagesInPerSec:" +  messagesInPerSec + 
+                              " reached within " + TERMINATION_MESSAGESIN_THRESHOLD_PERCENTAGE +
+                              "% of totalMessagesInPerSec: " + totalMessagesInPerSec_);
+                    messagesInPerSecWithinThreshold_ = true;
                 }
-            }
-
-            if ((totalMessagesInPerSec_ * (100 - TERMINATION_MESSAGESIN_THRESHOLD_PERCENTAGE) / 100) < 
-                messagesInPerSec) {
-                log.debug("messagesInPerSec:" +  messagesInPerSec + 
-                          " reached within " + TERMINATION_MESSAGESIN_THRESHOLD_PERCENTAGE +
-                          "% of totalMessagesInPerSec: " + totalMessagesInPerSec_);
-                messagesInPerSecWithinThreshold_ = true;
             }
         }
 
@@ -213,12 +229,23 @@ public class KafkaMonitor {
         boolean isConsumerKeepingUp = ((bytesInPerSec * (100 - SCALING_THRESHOLD_PERCENTAGE) / 100) < bytesOutPerSec);
         lastNChecks_.addLast(new Boolean(isConsumerKeepingUp));
 
-        long now = System.currentTimeMillis();
-        long cooldownPeriod = lastScalingTime_ + COOLDOWN_PERIOD_MS;
-        if (now < cooldownPeriod) {
-            log.debug("In cooldown period (now: " + now + ", cooldown: " + cooldownPeriod + ")");
-            return false;       
+        // cooldown check - bytesInPerSec based
+        if (bytesInPerSec < totalMessagesInPerSec_) {
+            double bytesInPerSecPercent = 
+                100 * (double)(totalMessagesInPerSec_ - bytesInPerSec) / totalMessagesInPerSec_;
+            if (COOLDOWN_THRESHOLD_PERCENTAGE < bytesInPerSecPercent) {
+                log.debug("COOLING DOWN (curr: " + bytesInPerSecPercent + 
+                          ", threshold: " + COOLDOWN_THRESHOLD_PERCENTAGE + ")");
+                return false;       
+            }
         }
+        // cooldown check - time based
+        // long now = System.currentTimeMillis();
+        // long cooldownPeriod = lastScalingTime_ + COOLDOWN_PERIOD_MS;
+        // if (now < cooldownPeriod) {
+        //     log.debug("COOLING DOWN (now: " + now + ", cooldown: " + cooldownPeriod + ")");
+        //     return false;       
+        // }
 
         if (N <= lastNChecks_.size()) {
             // we have done enough checks
