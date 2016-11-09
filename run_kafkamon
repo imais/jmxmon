@@ -1,0 +1,1 @@
+java KafkaMonitor prod1:7777 $1
