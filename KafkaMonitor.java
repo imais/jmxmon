@@ -34,7 +34,7 @@ public class KafkaMonitor {
     static private final int SCALING_THRESHOLD_PERCENTAGE = 3;
     static private final int COOLDOWN_PERIOD_MS = 60000; // [ms]
     static private final int COOLDOWN_THRESHOLD_PERCENTAGE = 10;
-    static private final int BYTES_INOUT_DIFF_PERCENTAGE = 5;
+    static private final int BYTES_INOUT_DIFF_PERCENTAGE = 3;
     // Termination criteria: program terminates if both conditions 1 and 2 meet
     //  OR
     // condition 3 meet
