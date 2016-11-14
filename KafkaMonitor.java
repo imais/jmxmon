@@ -229,9 +229,11 @@ public class KafkaMonitor {
             else if (beanAttr.contains("BytesOutPerSec")) {
                 bytesOutPerSec = (Double)entry.getValue();
                 if (maxBytesOutPerSec_ < bytesOutPerSec &&
-                    bytesOutPerSec <= maxBytesInPerSec_)
+                    bytesOutPerSec <= maxBytesInPerSec_) {
                     /* Output should be less than or equal to input throughput */
                     maxBytesOutPerSec_ = bytesOutPerSec;
+                    log.debug("Updated maxBytesOutPerSec: " + maxBytesOutPerSec_);
+                }
             }
         }
 
