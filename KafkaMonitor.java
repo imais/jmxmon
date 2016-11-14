@@ -36,14 +36,14 @@ public class KafkaMonitor {
     static private final int COOLDOWN_THRESHOLD_PERCENTAGE = 10;
     // Termination criteria: program terminates if both conditions 1 and 2 meet
     //  OR
-    // condition 3 holds
+    // condition 3 meet
     // 1. messagesInPerSec_ is within a% of totalMessagesInPerSec_
     // 2. "delta between BytesOutPerSec and lastBytesOutPerSec is less than b%" 
     //    is observed M times in a row
-    // 3. messagesInPerSec_ drops more than c% from its peak value
+    // 3. bytesOutPerSec_ drops more than c% from its peak value (maxBytesOutPerSec-)
     static private final int TERMINATION_MESSAGESIN_THRESHOLD_PERCENTAGE = 3;   // a
     static private final int TERMINATION_BYTESOUT_THRESHOLD_PERCENTAGE = 5;     // b
-    static private final int TERMINATION_BYTESIN_DROP_THRESHOLD_PERCENTAGE = 10;// c
+    static private final int TERMINATION_BYTESOUT_DROP_THRESHOLD_PERCENTAGE = 10;// c
     static private final int M = 10;
 
 
@@ -64,6 +64,7 @@ public class KafkaMonitor {
     private long lastScalingTime_;
     private int messagesInPerSec_;     
     private double maxMessagesInPerSec_;
+    private double maxBytesInPerSec_;
     private boolean messagesInPerSecWithinThreshold_;
     private int totalMessagesInPerSec_;
     private double maxBytesOutPerSec_;
@@ -147,11 +148,16 @@ public class KafkaMonitor {
     private boolean checkIfTerminate(Map<String, Object> vals) {
         boolean terminate = false;
 
-        double bytesOutPerSec = 0.0, messagesInPerSec = 0.0;
+        double bytesOutPerSec = 0.0, bytesInPerSec = 0.0, messagesInPerSec = 0.0;
         for (Map.Entry<String, Object> entry : vals.entrySet()) {
             String beanAttr = entry.getKey();
             if (beanAttr.contains("BytesOutPerSec"))
                 bytesOutPerSec = (Double)entry.getValue();
+            else if (beanAttr.contains("BytesInPerSec")) {
+                bytesInPerSec = (Double)entry.getValue();
+                if (maxBytesInPerSec_ < bytesInPerSec)
+                    maxBytesInPerSec_ = bytesInPerSec;
+            }
             else if (beanAttr.contains("MessagesInPerSec")) {
                 messagesInPerSec = (Double)entry.getValue();
                 if (maxMessagesInPerSec_ < messagesInPerSec)
@@ -159,13 +165,13 @@ public class KafkaMonitor {
             }
         }
 
-        if (messagesInPerSec < maxMessagesInPerSec_) {
+        if (bytesOutPerSec < maxBytesOutPerSec_) {
             double dropPercent = 
-                100 * (double)(maxMessagesInPerSec_ - messagesInPerSec) / maxMessagesInPerSec_;
-            if (TERMINATION_BYTESIN_DROP_THRESHOLD_PERCENTAGE <= dropPercent) {
-                log.debug("messageInPerSec:" +  messagesInPerSec + 
-                          " dropped more than " + TERMINATION_BYTESIN_DROP_THRESHOLD_PERCENTAGE + 
-                          "% of maxMessagesInPerSec: " + maxMessagesInPerSec_);
+                100 * (double)(maxBytesOutPerSec_ - bytesOutPerSec) / maxBytesOutPerSec_;
+            if (TERMINATION_BYTESOUT_DROP_THRESHOLD_PERCENTAGE <= dropPercent) {
+                log.debug("bytesOutPerSec:" + bytesOutPerSec + 
+                          " dropped more than " + TERMINATION_BYTESOUT_DROP_THRESHOLD_PERCENTAGE +
+                          "% of maxBytesOutPerSec_: " + maxBytesOutPerSec_);
                 terminate = true;
             }
         }
@@ -222,7 +228,9 @@ public class KafkaMonitor {
                 messagesInPerSec = (Double)entry.getValue();
             else if (beanAttr.contains("BytesOutPerSec")) {
                 bytesOutPerSec = (Double)entry.getValue();
-                if (maxBytesOutPerSec_ < bytesOutPerSec) 
+                if (maxBytesOutPerSec_ < bytesOutPerSec &&
+                    bytesOutPerSec <= maxBytesInPerSec_)
+                    /* Output should be less than or equal to input throughput */
                     maxBytesOutPerSec_ = bytesOutPerSec;
             }
         }
