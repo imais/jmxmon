@@ -34,6 +34,7 @@ public class KafkaMonitor {
     static private final int SCALING_THRESHOLD_PERCENTAGE = 3;
     static private final int COOLDOWN_PERIOD_MS = 60000; // [ms]
     static private final int COOLDOWN_THRESHOLD_PERCENTAGE = 10;
+    static private final int BYTES_INOUT_DIFF_PERCENTAGE = 5;
     // Termination criteria: program terminates if both conditions 1 and 2 meet
     //  OR
     // condition 3 meet
@@ -229,8 +230,9 @@ public class KafkaMonitor {
             else if (beanAttr.contains("BytesOutPerSec")) {
                 bytesOutPerSec = (Double)entry.getValue();
                 if (maxBytesOutPerSec_ < bytesOutPerSec &&
-                    bytesOutPerSec <= maxBytesInPerSec_) {
-                    /* Output should be less than or equal to input throughput */
+                    bytesOutPerSec <= 
+                    maxBytesInPerSec_ * (100 + BYTES_INOUT_DIFF_PERCENTAGE) / 100) {
+                    /* Output should be within a reasonable range from input throughput */
                     maxBytesOutPerSec_ = bytesOutPerSec;
                     log.debug("Updated maxBytesOutPerSec: " + maxBytesOutPerSec_);
                 }
