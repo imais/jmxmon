@@ -213,11 +213,13 @@ public class KafkaMonitor {
         }
 
         // K out of N check
-        double bytesInPerSec = 0.0, bytesOutPerSec = 0.0;
+        double bytesInPerSec = 0.0, messagesInPerSec = 0.0, bytesOutPerSec = 0.0;
         for (Map.Entry<String, Object> entry : vals.entrySet()) {
             String beanAttr = entry.getKey();
             if (beanAttr.contains("BytesInPerSec"))
                 bytesInPerSec = (Double)entry.getValue();
+            else if (beanAttr.contains("MessagesInPerSec"))
+                messagesInPerSec = (Double)entry.getValue();
             else if (beanAttr.contains("BytesOutPerSec")) {
                 bytesOutPerSec = (Double)entry.getValue();
                 if (maxBytesOutPerSec_ < bytesOutPerSec) 
@@ -230,12 +232,13 @@ public class KafkaMonitor {
         lastNChecks_.addLast(new Boolean(isConsumerKeepingUp));
 
         // cooldown check - bytesInPerSec based
-        if (bytesInPerSec < totalMessagesInPerSec_) {
-            double bytesInPerSecPercent = 
-                100 * (double)(totalMessagesInPerSec_ - bytesInPerSec) / totalMessagesInPerSec_;
-            if (COOLDOWN_THRESHOLD_PERCENTAGE < bytesInPerSecPercent) {
-                log.debug("COOLING DOWN (curr: " + bytesInPerSecPercent + 
+        if (messagesInPerSec < totalMessagesInPerSec_) {
+            double messagesInPerSecPercent = 
+                100 * (double)(totalMessagesInPerSec_ - messagesInPerSec) / totalMessagesInPerSec_;
+            if (COOLDOWN_THRESHOLD_PERCENTAGE < messagesInPerSecPercent) {
+                log.debug("Cooling down (curr: " + messagesInPerSecPercent + 
                           ", threshold: " + COOLDOWN_THRESHOLD_PERCENTAGE + ")");
+                messagesInPerSecWithinThreshold_ = false;                
                 return false;       
             }
         }
