@@ -33,7 +33,7 @@ public class KafkaMonitor {
     static private final int N = 10;
     static private final int SCALING_THRESHOLD_PERCENTAGE = 3;
     static private final int COOLDOWN_PERIOD_MS = 60000; // [ms]
-    static private final int COOLDOWN_THRESHOLD_PERCENTAGE = 10;
+    static private final int COOLDOWN_THRESHOLD_PERCENTAGE = 5;
     static private final int BYTES_INOUT_DIFF_PERCENTAGE = 3;
     // Termination criteria: program terminates if both conditions 1 and 2 meet
     //  OR
@@ -243,24 +243,26 @@ public class KafkaMonitor {
         boolean isConsumerKeepingUp = ((bytesInPerSec * (100 - SCALING_THRESHOLD_PERCENTAGE) / 100) < bytesOutPerSec);
         lastNChecks_.addLast(new Boolean(isConsumerKeepingUp));
 
-        // cooldown check - bytesInPerSec based
-        if (messagesInPerSec < totalMessagesInPerSec_) {
+
+        // cooldown check - time based
+        long now = System.currentTimeMillis();
+        long cooldownPeriod = lastScalingTime_ + COOLDOWN_PERIOD_MS;
+        if (now < cooldownPeriod) {
+            double countdown = (double)(cooldownPeriod - now) / 1000;
+            log.debug("Cooling down (time remaining: " + countdown + " sec)");
+            return false;       
+        }
+        // cooldown check - messagesInPerSec based
+        else if (messagesInPerSec < totalMessagesInPerSec_) {
             double messagesInPerSecPercent = 
                 100 * (double)(totalMessagesInPerSec_ - messagesInPerSec) / totalMessagesInPerSec_;
             if (COOLDOWN_THRESHOLD_PERCENTAGE < messagesInPerSecPercent) {
-                log.debug("Cooling down (curr: " + messagesInPerSecPercent + 
+                log.debug("Cooling down (msgInPerSecPercent now: " + messagesInPerSecPercent + 
                           ", threshold: " + COOLDOWN_THRESHOLD_PERCENTAGE + ")");
                 messagesInPerSecWithinThreshold_ = false;                
                 return false;       
             }
         }
-        // cooldown check - time based
-        // long now = System.currentTimeMillis();
-        // long cooldownPeriod = lastScalingTime_ + COOLDOWN_PERIOD_MS;
-        // if (now < cooldownPeriod) {
-        //     log.debug("COOLING DOWN (now: " + now + ", cooldown: " + cooldownPeriod + ")");
-        //     return false;       
-        // }
 
         if (N <= lastNChecks_.size()) {
             // we have done enough checks
