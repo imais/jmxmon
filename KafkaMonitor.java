@@ -310,13 +310,13 @@ public class KafkaMonitor {
             client_.open();
 
             while (true) {
-                String str = (System.currentTimeMillis() - startTime_) + ", ";
+                String str = (double)(System.currentTimeMillis() - startTime_)/1000 + ", ";
 
                 Map<String, Object> allVals = new TreeMap<String, Object>();
                 for (int i = 0; i < beans_.length; i++) {
                     Map<String, Object> vals = client_.getAttributeValues(beans_[i], csvAttributes_[i]);
                     for (Map.Entry<String, Object> val : vals.entrySet()) {
-                        str += val.getValue() + ", ";
+                        str += String.format("%.3f", val.getValue()) + ", ";
                     }
                     allVals.putAll(vals);
                 }
