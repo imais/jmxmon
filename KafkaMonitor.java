@@ -34,7 +34,10 @@ public class KafkaMonitor {
     static private final int SCALING_THRESHOLD_PERCENTAGE = 3;
     static private final int COOLDOWN_PERIOD_MS = 60000; // [ms]
     static private final int COOLDOWN_THRESHOLD_PERCENTAGE = 5;
-    static private final int BYTES_INOUT_DIFF_PERCENTAGE = 3;
+    // BytesIn < BytesOut
+    // See why this happens: http://mail-archives.apache.org/mod_mbox/kafka-users/201404.mbox/%3cCAFbh0Q1ikxwxce8i5H_yEd9DfsxUJSoJoQ7AYpGvwQexii-nYA@mail.gmail.com%3e
+    static private final int BYTES_INOUT_DIFF_PERCENTAGE = 15;
+
     // Termination criteria: program terminates if both conditions 1 and 2 meet
     //  OR
     // condition 3 meet
