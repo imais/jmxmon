@@ -1,9 +1,11 @@
 import java.io.BufferedReader;
+import java.io.FileReader;
 import java.io.InputStreamReader;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
+import java.util.ArrayList;
 import java.util.Map;
 
 import javax.management.JMException;
@@ -14,19 +16,19 @@ import org.apache.log4j.Logger;
 public class JmxMonitor {
     static Logger log = Logger.getLogger(JmxMonitor.class.getName());
 
-    static private int LISTEN_PORT = 8888;
+    static private int LISTEN_PORT = 9999;
     static private int ACCEPT_TIMEOUT_MS = 3000; // [ms]
 
     private int port_;
     private ServerSocket serverSock_;
 
-    private JmxClient client_;
     private int pid_;
-    private String[] beans_;
-    private String[] csvAttributes_;
+    private JmxClient client_;
+    private ArrayList<String[]> beanAttrList_;
     private long startTime_;
 
-    public JmxMonitor(String[] args) {
+    public JmxMonitor(String className, String beansFile) {
+
         port_ = LISTEN_PORT;
         try {
             serverSock_ = new ServerSocket(port_);
@@ -35,13 +37,26 @@ public class JmxMonitor {
             log.error(ex);
         }
 
-        pid_ = getPid(args[0] /* class name */);
-        beans_ = new String[args.length - 1];
-        csvAttributes_ = new String[args.length - 1];
-        for (int i = 1; i < args.length; i++) {
-            beans_[i - 1] = args[i].substring(0, args[i].indexOf('#'));
-            csvAttributes_[i - 1] = args[i].substring(args[i].indexOf('#') + 1);
+        pid_ = getPid(className);
+        if (pid_ < 0) {
+            log.error("pid not found for " + className);
+            System.exit(1);
         }
+
+        beanAttrList_ = new ArrayList<String[]>();
+        try {
+            BufferedReader reader = new BufferedReader(new FileReader(beansFile));
+            String line = null;
+            while ((line = reader.readLine()) != null) {
+                String[] beanAttr = line.split("#");
+                beanAttrList_.add(beanAttr);
+            }
+            reader.close();
+        } catch  (Exception ex) {
+            ex.printStackTrace();
+        }
+        // for (String[] beanAttr : beanAttrList_)
+        //     System.out.println(beanAttr[0] + ", " + beanAttr[1]);
 
         client_ = new JmxClient(pid_);
         startTime_ = System.currentTimeMillis();
@@ -54,7 +69,9 @@ public class JmxMonitor {
         Map<Integer, LocalVirtualMachine> vms = LocalVirtualMachine.getAllVirtualMachines();
         for (Map.Entry<Integer, LocalVirtualMachine> entry : vms.entrySet()) {
             LocalVirtualMachine vm = entry.getValue();
-            if (vm.displayName().startsWith(className)) {
+            // if (vm.displayName().startsWith(className)) {
+            if (vm.displayName().contains(className) && 
+                !vm.displayName().contains(JmxMonitor.class.getName())) {
                 pid = vm.vmid();
                 log.info("Found vm \"" + vm.displayName() + "\" with pid " + pid);
                 break;
@@ -69,12 +86,16 @@ public class JmxMonitor {
             client_.open();
 
             while (true) {
-                String str = (System.currentTimeMillis() - startTime_) + ", ";
+                String str = System.currentTimeMillis() + ", ";
 
-                for (int i = 0; i < beans_.length; i++) {
-                    Map<String, Object> vals = client_.getAttributeValues(beans_[i], csvAttributes_[i]);
+                for (String[] beanAttr : beanAttrList_) {
+                    Map<String, Object> vals = client_
+                        .getAttributeValues(beanAttr[0], beanAttr[1]);
                     for (Map.Entry<String, Object> val : vals.entrySet()) {
-                        str += val.getValue() + ", ";
+                        if (val.getValue() instanceof Double)
+                            str += String.format("%.3f", val.getValue()) + ", ";
+                        else
+                            str += val.getValue() + ", ";
                     }
                 }
 
@@ -98,18 +119,19 @@ public class JmxMonitor {
             client_.close();
         } catch (IOException ex) {
             log.error(ex);
-        } catch (JMException ex) {
+        } 
+        catch (JMException ex) {
             log.error(ex);
         }
     }
 
     public static void main(String[] args) {
         if (args.length < 2) {
-            System.err.println("Usage: java JmxMonitor [monitoring class name] [bean'#'attributes(csv)]+");
+            System.err.println("Usage: java JmxMonitor [monitoring class name] [beans file]");
             System.exit(1);
         }
 
-        JmxMonitor monitor  = new JmxMonitor(args);
+        JmxMonitor monitor  = new JmxMonitor(args[0], args[1]);
         monitor.doMonitor();
     }
 }

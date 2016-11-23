@@ -310,7 +310,8 @@ public class KafkaMonitor {
             client_.open();
 
             while (true) {
-                String str = (double)(System.currentTimeMillis() - startTime_)/1000 + ", ";
+                // String str = (double)(System.currentTimeMillis() - startTime_)/1000 + ", ";
+                String str = System.currentTimeMillis() + ", ";
 
                 Map<String, Object> allVals = new TreeMap<String, Object>();
                 for (int i = 0; i < beans_.length; i++) {
