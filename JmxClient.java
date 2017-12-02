@@ -33,7 +33,7 @@ public class JmxClient {
     public void open() throws IOException {
         LocalVirtualMachine vm = LocalVirtualMachine.getLocalVirtualMachine(pid_);
         String url = vm.connectorAddress();
-        log.debug("Connecting to MBean server: " + url);
+        // log.debug("Connecting to MBean server: " + url);
         connector_ = JMXConnectorFactory.connect(new JMXServiceURL(url), null /* env */);
         log.info("Opened connection to pid " + pid_);
     }

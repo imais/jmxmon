@@ -1,4 +1,3 @@
-java.lang:type=OperatingSystem#CommittedVirtualMemorySize,FreePhysicalMemorySize,FreeSwapSpaceSize,ProcessCpuLoad,SystemCpuLoad
-java.lang:type=Memory#HeapMemoryUsage
-java.lang:name=PS MarkSweep,type=GarbageCollector#CollectionCount,CollectionTime
-java.lang:name=PS Scavenge,type=GarbageCollector#CollectionCount,CollectionTime
+kafka.server:type=BrokerTopicMetrics,name=MessagesInPerSec#OneMinuteRate
+kafka.server:name=BytesInPerSec,type=BrokerTopicMetrics#OneMinuteRate
+kafka.server:name=BytesOutPerSec,type=BrokerTopicMetrics#OneMinuteRate
