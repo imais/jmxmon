@@ -2,6 +2,7 @@ import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.InputStreamReader;
 import java.io.IOException;
+import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
@@ -110,6 +111,11 @@ public class JmxMonitor {
                         sock.close();
                         serverSock_.close();
                         break;
+                    }
+                    else if (data.equals("get_data")) {
+                        PrintWriter out = new PrintWriter(sock.getOutputStream(), true);
+                        out.println(str);
+                        sock.close();
                     }
                 } catch (SocketTimeoutException ex) {
                     ;
